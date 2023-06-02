@@ -1,12 +1,16 @@
 import json
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-from config import TELEGRAM_TOKEN
 import logging
-from datetime import datetime
-from lazy_logger import lazy_logger
 import re
+from datetime import datetime
 
-weekdays = {
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+
+from config import TELEGRAM_TOKEN
+from lazy_logger import lazy_logger
+
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+
+WEEKDAYS = {
     'понедельник': 1,
     'вторник': 2,
     'среда': 3,
@@ -16,9 +20,8 @@ weekdays = {
     'воскресенье': 7
 }
 
-group_pattern = r'[А-Яа-я]{4}-\d{2}-\d{2}'
-exam_pattern = r'экз (.+)|Экз (.+)|ЭКЗ (.+)'
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+GROUP_PATTERN = r'[А-Яа-я]{4}-\d{2}-\d{2}'
+EXAM_PATTERN = r'экз (.+)|Экз (.+)|ЭКЗ (.+)'
 
 
 def start(update, context):
@@ -29,19 +32,13 @@ def start(update, context):
 
 
 def search(update, context):
-    with open('data/exams.json', 'r', encoding='utf-8') as f:
-        exams = json.load(f)
-
-    mode = 'teacher'
-
     query = update.message.text
-
-    if re.match(group_pattern, query):
-        mode = 'group'
+    mode = determine_search_mode(query)
 
     if mode == 'teacher':
-        if " " not in query:
-            query += " "
+        query = prepare_teacher_query(query)
+    elif mode == 'group':
+        query = query.lower()
 
     if len(query) < 3:
         context.bot.send_message(chat_id=update.effective_chat.id, text="Слишком короткий запрос")
@@ -50,101 +47,121 @@ def search(update, context):
     lazy_logger.info(json.dumps({"type": "request", "query": query.lower(), **update.message.from_user.to_dict()},
                                 ensure_ascii=False))
 
-    if mode == 'teacher':
-        exam_ids = [exam_id for exam_id, teacher in exams['teachers'].items() if query.lower() in teacher.lower()]
-    else:
-        exam_ids = [exam_id for exam_id, group in exams['group'].items() if query.lower() == group.lower()]
+    exams = load_exams_from_file()
+
+    exam_ids = find_exam_ids(query, exams, mode)
 
     if not exam_ids:
         context.bot.send_message(chat_id=update.effective_chat.id,
                                  text="По вашему запросу ничего не найдено")
         return
 
+    unique_exams = group_exams_by_time(exam_ids, exams)
+    sorted_exams = sort_exams(unique_exams)
+    send_exam_info(update, context, sorted_exams, mode)
+
+
+def determine_search_mode(query):
+    if re.match(GROUP_PATTERN, query):
+        return 'group'
+    return 'teacher'
+
+
+def prepare_teacher_query(query):
+    if " " not in query:
+        query += " "
+    return query.lower()
+
+
+def load_exams_from_file():
+    with open('data/exams.json', 'r', encoding='utf-8') as f:
+        exams = json.load(f)
+    return exams
+
+
+def find_exam_ids(query, exams, mode):
+    if mode == 'teacher':
+        exam_ids = [exam_id for exam_id, teacher in exams['teachers'].items() if query in teacher.lower()]
+    else:
+        exam_ids = [exam_id for exam_id, group in exams['group'].items() if query == group.lower()]
+    return exam_ids
+
+
+def group_exams_by_time(exam_ids, exams):
     unique_exams = {}
-    try:
-        for exam_id in exam_ids:
-            if (exams['weekday'][exam_id], exams['time_start'][exam_id], exams['weeks'][exam_id]) in unique_exams:
-                unique_exams[(exams['weekday'][exam_id], exams['time_start'][exam_id],
-                              exams['weeks'][exam_id])]['group'].append(exams['group'][exam_id])
-            else:
-                unique_exams[(exams['weekday'][exam_id], exams['time_start'][exam_id],
-                              exams['weeks'][exam_id])] = {
-                    'exam': exams['lesson'][exam_id],
-                    'group': [exams['group'][exam_id]],
-                    'num': exams['lesson_num'][exam_id],
-                    'teacher': exams['teachers'][exam_id],
-                    'room': exams['room'][exam_id],
-                    'campus': exams['campus'][exam_id][0],
-                    'weekday': exams['weekday'][exam_id],
-                    'weeks': exams['weeks'][exam_id],
-                    'time_start': exams['time_start'][exam_id],
-                    'time_end': exams['time_end'][exam_id],
-                    'type': exams['type'][exam_id]
-                }
+    for exam_id in exam_ids:
+        key = (exams['weekday'][exam_id], exams['time_start'][exam_id], exams['weeks'][exam_id])
+        if key in unique_exams:
+            unique_exams[key]['group'].append(exams['group'][exam_id])
+        else:
+            unique_exams[key] = {
+                'exam': exams['lesson'][exam_id],
+                'group': [exams['group'][exam_id]],
+                'num': exams['lesson_num'][exam_id],
+                'teacher': exams['teachers'][exam_id],
+                'room': exams['room'][exam_id],
+                'campus': exams['campus'][exam_id][0],
+                'weekday': exams['weekday'][exam_id],
+                'weeks': exams['weeks'][exam_id],
+                'time_start': exams['time_start'][exam_id],
+                'time_end': exams['time_end'][exam_id],
+                'type': exams['type'][exam_id]
+            }
+    return unique_exams
 
-        sorted_exams = sorted(unique_exams.items(), key=lambda x: (x[1]['weeks'], weekdays[x[1]['weekday']],
-                                                                   x[1]['time_start']))
-        text = ""
-        blocks = []
 
-        if mode == 'teacher':
-            surnames = list(set([exam[1]['teacher'] for exam in sorted_exams]))
-            surnames_str = ', '.join(surnames)
-            if len(surnames) > 1:
-                context.bot.send_message(chat_id=update.effective_chat.id,
-                                         text=f"По запросу ({query}) найдено несколько преподавателей:\n\n({surnames_str})"
-                                              f"\n\nУточните запрос")
-                return
+def sort_exams(unique_exams):
+    return sorted(unique_exams.items(), key=lambda x: (x[1]['weeks'], WEEKDAYS[x[1]['weekday']], x[1]['time_start']))
 
-        for exam in sorted_exams:
-            groups = ', '.join(exam[1]['group'])
-            weekday = exam[1]['weekday'].title()
-            time_start = exam[1]['time_start']
-            time_end = exam[1]['time_end']
-            weeks = exam[1]['weeks']
-            campus = exam[1]['campus']
-            room = exam[1]['room']
-            teacher = exam[1]['teacher']
-            teachers = ", ".join([teacher])
-            lesson = exam[1]['exam']
-            num = exam[1]['num']
-            time_start = datetime.strptime(time_start, "%H:%M:%S").strftime("%H:%M")
-            time_end = datetime.strptime(time_end, "%H:%M:%S").strftime("%H:%M")
 
-            formatted_time = f"{time_start} – {time_end}"
-            text += f'📅 Недели: {weeks}\n'
-            text += f"📆 День недели: {weekday}\n"
-            text += f'📝 Пара № {num} в ⏰ {formatted_time}\n'
-            text += f"🏫 Аудитории: {room} ({campus})\n"
-            text += f'📝 {lesson}\n'
-            if len(groups) > 0:
-                text += f'👥 Группы: {groups}\n'
-            if exam[1]['type']:
-                text += f'📚 Тип: {exam[1]["type"]}\n'
-            text += f"👨🏻‍🏫 Преподаватели: {teachers}\n\n"
+def send_exam_info(update, context, sorted_exams, mode):
+    chunks = []
+    chunk = ""
 
-            blocks.append(text)
-            text = ""
-            chunk = ""
-            first = True
-            for block in blocks:
-                if len(chunk) + len(block) <= 4096:
-                    chunk += block
-                else:
-                    if first:
-                        context.bot.send_message(chat_id=update.effective_chat.id, text=chunk)
-                        first = False
-                    else:
-                        context.bot.send_message(chat_id=update.effective_chat.id, text=chunk)
+    for exam in sorted_exams:
+        exam_info = format_exam_info(exam, mode)
+        if len(chunk) + len(exam_info) <= 4096:
+            chunk += exam_info
+        else:
+            chunks.append(chunk)
+            chunk = exam_info
 
-                    chunk = block
+    if chunk:
+        chunks.append(chunk)
 
+    for chunk in chunks:
         context.bot.send_message(chat_id=update.effective_chat.id, text=chunk)
 
-    except Exception as e:
-        print(e)
-        context.bot.send_message(chat_id=update.effective_chat.id,
-                                 text="Произошла ошибка, попробуйте повторить попытку позже")
+
+def format_exam_info(exam, mode):
+    exam_info = ""
+    groups = ', '.join(exam[1]['group'])
+    weekday = exam[1]['weekday'].title()
+    time_start = exam[1]['time_start']
+    time_end = exam[1]['time_end']
+    weeks = exam[1]['weeks']
+    campus = exam[1]['campus']
+    room = exam[1]['room']
+    teacher = exam[1]['teacher']
+    teachers = ", ".join([teacher])
+    lesson = exam[1]['exam']
+    num = exam[1]['num']
+    time_start = datetime.strptime(time_start, "%H:%M:%S").strftime("%H:%M")
+    time_end = datetime.strptime(time_end, "%H:%M:%S").strftime("%H:%M")
+
+    formatted_time = f"{time_start} – {time_end}"
+    exam_info += f'📅 Недели: {weeks}\n'
+    exam_info += f"📆 День недели: {weekday}\n"
+    exam_info += f'📝 Пара № {num} в ⏰ {formatted_time}\n'
+    exam_info += f"🏫 Аудитории: {room} ({campus})\n"
+    exam_info += f'📝 {lesson}\n'
+    if len(groups) > 0:
+        exam_info += f'👥 Группы: {groups}\n'
+    if exam[1]['type']:
+        exam_info += f'📚 Тип: {exam[1]["type"]}\n'
+    exam_info += f"👨🏻‍🏫 Преподаватели: {teachers}\n\n"
+
+    return exam_info
 
 
 def main():
@@ -156,7 +173,6 @@ def main():
     dp.add_handler(MessageHandler(Filters.text, search, run_async=True))
 
     updater.start_polling()
-
     updater.idle()
 
 
