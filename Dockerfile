@@ -25,4 +25,4 @@ COPY ./data/exams.json /app/data/exams.json
 COPY . .
 
 # Run the application
-CMD python -m main.py
+CMD python -m main
