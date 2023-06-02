@@ -99,13 +99,13 @@ def group_exams_by_time(exam_ids, exams):
                 'group': [exams['group'][exam_id]],
                 'num': exams['lesson_num'][exam_id],
                 'teacher': exams['teachers'][exam_id],
-                'room': exams['room'][exam_id],
-                'campus': exams['campus'][exam_id][0],
+                'room': exams['room'][exam_id] if exams['room'][exam_id] else "",
+                'campus': exams['campus'][exam_id][0] if exams['campus'][exam_id] else "",
                 'weekday': exams['weekday'][exam_id],
                 'weeks': exams['weeks'][exam_id],
                 'time_start': exams['time_start'][exam_id],
                 'time_end': exams['time_end'][exam_id],
-                'type': exams['type'][exam_id]
+                'type': exams['type'][exam_id] if exams['type'][exam_id] else ""
             }
     return unique_exams
 
