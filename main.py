@@ -1,15 +1,17 @@
 import json
 import logging
 import re
-from datetime import datetime
-
+import datetime
+import locale
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-
+from decode import decode_teachers
 from config import TELEGRAM_TOKEN
 from lazy_logger import lazy_logger
+from semester_start import get_semester_start_date_from_period
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+locale.setlocale(locale.LC_TIME, 'ru_RU.UTF-8')
 
 WEEKDAYS = {
     'понедельник': 1,
@@ -19,6 +21,21 @@ WEEKDAYS = {
     'пятница': 5,
     'суббота': 6,
     'воскресенье': 7
+}
+
+MONTHS = {
+    1: "Января",
+    2: "Февраля",
+    3: "Марта",
+    4: "Апреля",
+    5: "Мая",
+    6: "Июня",
+    7: "Июля",
+    8: "Августа",
+    9: "Сентября",
+    10: "Октября",
+    11: "Ноября",
+    12: "Декабря"
 }
 
 GROUP_PATTERN = r'[А-Яа-я]{4}-\d{2}-\d{2}'
@@ -75,7 +92,7 @@ def search(update, context):
 
 def check_same_surnames(sorted_exams, update, context):
     surnames = list(set([exam[1]['teacher'] for exam in sorted_exams]))
-    surnames_str = ', '.join(surnames)
+    surnames_str = ', '.join(decode_teachers(surnames))
     surnames_count = len(surnames)
     if surnames_count > 1:
         keyboard = [[surname] for surname in surnames]
@@ -170,14 +187,31 @@ def format_exam_info(exam, mode):
     campus = exam[1]['campus']
     room = exam[1]['room']
     teacher = exam[1]['teacher']
-    teachers = ", ".join([teacher])
+    teachers = ", ".join(decode_teachers([teacher]))
     lesson = exam[1]['exam']
     num = exam[1]['num']
-    time_start = datetime.strptime(time_start, "%H:%M:%S").strftime("%H:%M")
-    time_end = datetime.strptime(time_end, "%H:%M:%S").strftime("%H:%M")
+    time_start = datetime.datetime.strptime(time_start, "%H:%M:%S").strftime("%H:%M")
+    time_end = datetime.datetime.strptime(time_end, "%H:%M:%S").strftime("%H:%M")
+
+    if weeks.isdigit():
+
+        semester_start = get_semester_start_date_from_period()
+        int_weekday = WEEKDAYS.get(weekday.lower())
+        start_weekday = semester_start.weekday() + 1
+        weekday_difference = int_weekday - start_weekday
+        days_to_add = (int(weeks) - 1) * 7
+
+        target_date = semester_start + datetime.timedelta(days=days_to_add + weekday_difference)
+
+        month_name = MONTHS[target_date.month]
+        date = target_date.day
+    else:
+        date = ""
+        month_name = ""
 
     formatted_time = f"{time_start} – {time_end}"
     exam_info += f'📅 Недели: {weeks}\n'
+    exam_info += f"📆 Дата: {date} {month_name}\n"
     exam_info += f"📆 День недели: {weekday}\n"
     exam_info += f'📝 Пара № {num} в ⏰ {formatted_time}\n'
     exam_info += f"🏫 Аудитории: {room} ({campus})\n"
