@@ -2,7 +2,6 @@ import json
 import logging
 import re
 import datetime
-import locale
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 from decode import decode_teachers
@@ -11,7 +10,6 @@ from lazy_logger import lazy_logger
 from semester_start import get_semester_start_date_from_period
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-locale.setlocale(locale.LC_TIME, 'ru_RU.UTF-8')
 
 WEEKDAYS = {
     'понедельник': 1,
