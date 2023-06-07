@@ -3,6 +3,7 @@ import logging
 import re
 from datetime import datetime
 
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
 from config import TELEGRAM_TOKEN
@@ -26,9 +27,13 @@ EXAM_PATTERN = r'экз (.+)|Экз (.+)|ЭКЗ (.+)'
 
 def start(update, context):
     context.bot.send_message(chat_id=update.effective_chat.id,
-                             text="Привет!\nНа период сессии включен режим экзаменов.\n"
-                                  "Некоторые функции могут быть недоступны.\n"
-                                  "Введи фамилию преподавателя.\n")
+                             text="Привет!\nНа период сессии включен режим сессии.\n\n"
+                                  "Доступен поиск по преподавателям и группам.\n"
+                                  "Введи фамилию преподавателя или группу.\n\n"
+                                  "Примеры: \n"
+                                  "`Иванов И.А.`\n"
+                                  "`Иванов`\n"
+                                  "`ИВБО-07-22`", parse_mode='Markdown')
 
 
 def search(update, context):
@@ -56,9 +61,31 @@ def search(update, context):
                                  text="По вашему запросу ничего не найдено")
         return
 
-    unique_exams = group_exams_by_time(exam_ids, exams)
+    unique_exams = create_unique_exams(exam_ids, exams)
     sorted_exams = sort_exams(unique_exams)
+
+    if mode == 'teacher':
+        context.user_data['teacher'] = query
+        surnames_count = check_same_surnames(sorted_exams, update, context)
+        if surnames_count:
+            return
+
     send_exam_info(update, context, sorted_exams, mode)
+
+
+def check_same_surnames(sorted_exams, update, context):
+    surnames = list(set([exam[1]['teacher'] for exam in sorted_exams]))
+    surnames_str = ', '.join(surnames)
+    surnames_count = len(surnames)
+    if surnames_count > 1:
+        keyboard = [[surname] for surname in surnames]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text=f"По запросу ({context.user_data['teacher'][:-1].title()}) найдено несколько "
+                                      f"преподавателей:\n\n({surnames_str})"
+                                      f"\n\nУточните запрос:",
+                                 reply_markup=reply_markup)
+        return surnames_count
 
 
 def determine_search_mode(query):
@@ -87,7 +114,7 @@ def find_exam_ids(query, exams, mode):
     return exam_ids
 
 
-def group_exams_by_time(exam_ids, exams):
+def create_unique_exams(exam_ids, exams):
     unique_exams = {}
     for exam_id in exam_ids:
         key = (exams['weekday'][exam_id], exams['time_start'][exam_id], exams['weeks'][exam_id])
@@ -130,7 +157,7 @@ def send_exam_info(update, context, sorted_exams, mode):
         chunks.append(chunk)
 
     for chunk in chunks:
-        context.bot.send_message(chat_id=update.effective_chat.id, text=chunk)
+        context.bot.send_message(chat_id=update.effective_chat.id, text=chunk, reply_markup=ReplyKeyboardRemove())
 
 
 def format_exam_info(exam, mode):
@@ -159,7 +186,10 @@ def format_exam_info(exam, mode):
         exam_info += f'👥 Группы: {groups}\n'
     if exam[1]['type']:
         exam_info += f'📚 Тип: {exam[1]["type"]}\n'
-    exam_info += f"👨🏻‍🏫 Преподаватели: {teachers}\n\n"
+    if len(teachers) > 0:
+        exam_info += f"👨🏻‍🏫 Преподаватели: {teachers}\n\n"
+    else:
+        exam_info += "\n"
 
     return exam_info
 
