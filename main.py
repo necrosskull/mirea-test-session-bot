@@ -232,6 +232,7 @@ def main():
 
     dp.add_handler(CommandHandler('start', start, run_async=True))
     dp.add_handler(CommandHandler('help', start, run_async=True))
+    dp.add_handler(CommandHandler('about', start, run_async=True))
     dp.add_handler(MessageHandler(Filters.text, search, run_async=True))
 
     updater.start_polling()
