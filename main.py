@@ -40,6 +40,15 @@ GROUP_PATTERN = r'[А-Яа-я]{4}-\d{2}-\d{2}'
 EXAM_PATTERN = r'экз (.+)|Экз (.+)|ЭКЗ (.+)'
 
 
+def load_exams_from_file():
+    with open('data/test_session.json', 'r', encoding='utf-8') as f:
+        exams = json.load(f)
+    return exams
+
+
+exams = load_exams_from_file()
+
+
 def start(update, context):
     context.bot.send_message(chat_id=update.effective_chat.id,
                              text="Привет!\nНа период сессии включен режим сессии.\n\n"
@@ -66,8 +75,6 @@ def search(update, context):
 
     lazy_logger.info(json.dumps({"type": "request", "query": query.lower(), **update.message.from_user.to_dict()},
                                 ensure_ascii=False))
-
-    exams = load_exams_from_file()
 
     exam_ids = find_exam_ids(query, exams, mode)
 
@@ -116,12 +123,6 @@ def prepare_teacher_query(query):
     if " " not in query:
         query += " "
     return query.lower()
-
-
-def load_exams_from_file():
-    with open('data/exams.json', 'r', encoding='utf-8') as f:
-        exams = json.load(f)
-    return exams
 
 
 def find_exam_ids(query, exams, mode):
@@ -211,7 +212,7 @@ def format_exam_info(exam, mode):
         month_name = ""
 
     formatted_time = f"{time_start} – {time_end}"
-    exam_info += f'📅 Недели: {weeks}\n'
+    exam_info += f'📅 Неделя: {weeks}\n'
     exam_info += f"📆 Дата: {date} {month_name}\n"
     exam_info += f"📆 День недели: {weekday}\n"
     exam_info += f'📝 Пара № {num} в ⏰ {formatted_time}\n'
