@@ -120,14 +120,34 @@ def determine_search_mode(query):
 
 
 def prepare_teacher_query(query):
-    if " " not in query:
-        query += " "
-    return query.lower()
+    teacher = query.replace("ё", "е")
+    name_parts = teacher.split()
+
+    if len(name_parts) > 1:
+        last_name = name_parts[0]
+
+        # Для запроса вида "Иванов И.И. или Иванов И.И"
+        if (
+                name_parts[1][-1] == "."
+                or len(name_parts[1]) > 1
+                and name_parts[1][-2] == "."
+        ):
+            initials = name_parts[1]
+        else:
+            # Для запроса вида "Иванов Иван Иванович и прочих"
+            initials = "".join([part[0] + "." for part in name_parts[1:3]])
+
+        teacher = last_name + " " + initials
+
+    if " " not in teacher:
+        teacher += " "
+    return teacher.lower()
 
 
 def find_exam_ids(query, exams, mode):
     if mode == 'teacher':
-        exam_ids = [exam_id for exam_id, teacher in exams['teachers'].items() if query in teacher.lower()]
+        exam_ids = [exam_id for exam_id, teacher in exams['teachers'].items() if
+                    query in teacher.lower().replace("ё", "е")]
     else:
         exam_ids = [exam_id for exam_id, group in exams['group'].items() if query == group.lower()]
     return exam_ids
