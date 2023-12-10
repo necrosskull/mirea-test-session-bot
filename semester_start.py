@@ -1,7 +1,4 @@
 import datetime
-import pytz
-
-pytz.timezone('Europe/Moscow')
 
 
 class Period:
@@ -39,5 +36,3 @@ def get_semester_start_date_from_period():
     period = get_period(current_date)
     semester_start_date = get_semester_start_date(period.year_start, period.year_end, period.semester)
     return semester_start_date
-
-
